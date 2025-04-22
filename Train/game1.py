@@ -180,7 +180,7 @@ class Game:
         if pyxel.btn(pyxel.KEY_P) or pyxel.btn(pyxel.KEY_CTRL):
             ## Smooth drag
             self.txt_temp_new(self.vais.cx - 6, self.vais.y - 8, id='in-brake', txt='STOP!', time=2, col=7, dn=0)
-            self.vais.move_drag(self.vais.drag['air'] * 2)
+            self.vais.move_drag(self.vais.drag['air'] * 2 + 0.1)
         # Change velocity
         if pyxel.btn(pyxel.KEY_Z) and self.vais.m > 0.01:
             self.vais.m -= 0.01
@@ -341,21 +341,23 @@ class Player:
             elif self.x < 0:
                 self.x = 0
                 self.shift['x'] = int(self.shift['x'] * -self.bounce)
+        ## Simply movement
+        if 0.01 > self.shift['x'] > -0.01:
+            self.shift['x'] = 0
+        if 0.01 > self.shift['y'] > -0.01:
+            self.shift['y'] = 0
 
     def move_drag(self, drag):
-        drag = drag * self.size/8
+        drag = drag * (self.size / 8)
         if drag != 0 and (self.shift['y'] != 0 or self.shift['x'] != 0):
             if self.shift['y'] > 0:
-                self.shift['y'] -= self.shift['y'] * drag
+                self.shift['y'] -= self.shift['y']**2 * drag
             elif self.shift['y'] < 0:
-                self.shift['y'] -= self.shift['y'] * drag
+                self.shift['y'] += self.shift['y']**2 * drag
             if self.shift['x'] > 0:
-                self.shift['x'] -= self.shift['x'] * drag
+                self.shift['x'] -= self.shift['x']**2 * drag
             elif self.shift['x'] < 0:
-                self.shift['x'] -= self.shift['x'] * drag
-            ## Simplify movement
-            self.shift['x'] = round(self.shift['x'], 3)
-            self.shift['y'] = round(self.shift['y'], 3)
+                self.shift['x'] += self.shift['x']**2 * drag
 
     def draw(self):
         pyxel.rect(self.x, self.y, self.size, self.size, 4)
@@ -416,5 +418,5 @@ class Shot:
 # EXEC
 
 print("GAME - Started")
-GAME = Game('Game1', 256, 256, fps=60, name='Detroix23', vx=float('inf'), pdrag=0.1, borders='tor', bounce=0.9)
+GAME = Game('Game1', 256, 256, fps=60, name='Detroix23', vx=float('inf'), pdrag=0.02, borders='tor', bounce=0.9)
 print("GAME - Finished")
