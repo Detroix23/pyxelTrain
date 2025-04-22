@@ -56,7 +56,6 @@ class Game:
         self.yn = 0     ### Y miN
         self.fps = fps
         self.title = title
-        self.timer = 0          ### DEPREC - Better use pyxel.frame_count
         self.shots_tot = 0
         self.borders = borders
 
@@ -69,6 +68,10 @@ class Game:
 
         # Init shot list
         self.shots_p = []
+
+        # Init Timers
+        self.timer = 0          ### DEPREC - Better use pyxel.frame_count
+        self.delays = {}
 
         # Init text
         ## Fixed
@@ -96,7 +99,7 @@ class Game:
             "pos: x=" + str(int(self.vais.x)) + ", y=" + str(int(self.vais.y)),
             "stats: size=" + str(self.vais.size) + ", spf=" + str(self.vais.spf),
             "velocity: max=" + str(self.vais.vx) + ", absolute=" + str2(self.vais.absV),
-            "accel: power=" + str2(self.vais.m) + ", drag=" + str2(self.vais.drag) + ", bounce=" + str(
+            "accel: power=" + str2(self.vais.m) + ", air-drag=" + str2(self.vais.drag['air']) + ", bounce=" + str(
                 self.vais.bounce * 100) + "%",
             "cardinal-v: y=" + str1(self.vais.shift['y']) + ", x=" + str1(self.vais.shift['x']),
             "shots: active=" + str(len(self.shots_p)) + ", total=" + str(self.shots_tot),
@@ -107,8 +110,11 @@ class Game:
             self.ty += 6
         self.ty = 10
 
-    def txt_temp_new(self, x, y, txt='No text', time=10.0, col=16):
-        self.txts_temp.append({'txt': txt, 'time': time, 'x': x, 'y': y, 'color': col})
+    def txt_temp_new(self, x, y, id, txt='No text', time=10.0, col=16, dn=None, dx=None):
+        self.delay_new("in-brake", dn, dx) ### Create if delays doesnt already exists
+        if self.delay_check(id):
+            self.delay_use(id)
+            self.txts_temp.append({'txt': txt, 'time': time, 'x': x, 'y': y, 'color': col})
 
     def txt_temp_update(self):
         for txt in self.txts_temp:
@@ -119,6 +125,40 @@ class Game:
     def txt_temp_draw(self):
         for txt in self.txts_temp:
             pyxel.text(txt['x'], txt['y'], txt['txt'], txt['color'])
+
+    def delay_new(self, id, delay_min, delay_max=None):
+        """
+        Create a new delay
+        """
+        state = False
+        if id not in self.delays and delay_min is not None:
+            self.delays[id] = {'t': delay_min, 'dn': delay_min, 'dx': delay_max}
+            state = True
+        return state
+
+    def delay_check(self, id):
+        """
+        Check delay time. Return False if in cooldown, True otherwise
+        """
+        auth = False
+        if self.delays[id]['t'] > self.delays[id]['dn']:
+            auth = True
+        return auth
+
+    def delay_use(self, id):
+        self.delays[id]['t'] = 0
+
+    def delay_update(self):
+        """
+        Update delays' timer
+        """
+        for id in self.delays:
+            self.delays[id]['t'] += 1
+            if self.delays[id]['dx'] is not None:
+                if self.delays[id]['t'] <= self.delays[id]['dx']:
+                    del self.delays[id]
+
+
 
     def input_player(self):
         """
@@ -136,6 +176,17 @@ class Game:
             self.xmov = -1
         if pyxel.btn(pyxel.KEY_UP):
             self.ymov = -1
+        # Brake
+        if pyxel.btn(pyxel.KEY_P) or pyxel.btn(pyxel.KEY_CTRL):
+            ## Smooth drag
+            self.txt_temp_new(self.vais.cx - 6, self.vais.y - 8, id='in-brake', txt='STOP!', time=2, col=7, dn=0)
+            self.vais.move_drag(self.vais.drag['air'] * 2)
+        # Change velocity
+        if pyxel.btn(pyxel.KEY_Z) and self.vais.m > 0.01:
+            self.vais.m -= 0.01
+        if pyxel.btn(pyxel.KEY_X) and self.vais.m < self.vais.vx:
+            self.vais.m += 0.01
+
         # Shoot
         if pyxel.btn(pyxel.KEY_SPACE) and pyxel.frame_count % self.vais.spf == 0: ### Limit to 1 shot per 2 frame
             #print("DEBUG - Player shot")
@@ -150,15 +201,13 @@ class Game:
         if pyxel.btn(pyxel.KEY_O):
             self.vais.x = self.xx/2 - self.vais.size/2
             self.vais.y = self.yx/2 - self.vais.size/2
-        # Reset velocity
-        if pyxel.btn(pyxel.KEY_P):
+        # Cancel velocity
+        if pyxel.btn(pyxel.KEY_P) and pyxel.btn(pyxel.KEY_SHIFT):
+            ## Instant reset
             self.vais.shift['x'] = 0
             self.vais.shift['y'] = 0
-        # Change velocity
-        if pyxel.btn(pyxel.KEY_Z) and self.vais.v > 0:
-            self.vais.m -= 0.01
-        elif pyxel.btn(pyxel.KEY_X):
-            self.vais.m += 0.01
+
+
         # Change size
         if pyxel.btn(pyxel.KEY_C) and self.vais.size > 0:
             self.vais.size -= 1
@@ -187,6 +236,8 @@ class Game:
             shot.move()
         # Text
         self.txt_temp_update()
+        # Delays
+        self.delay_update()
 
     """
     DRAWER
@@ -207,7 +258,7 @@ class Game:
         self.vais.draw_vect(m=5)
 
 class Player:
-    def __init__(self, game, name='', size=8, v=2, vx=4.0, spf=2, drag=0.0, bounce=0.0):
+    def __init__(self, game, name='', size=8, v=2, vx=4.0, spf=2, drag=0.0, v_limit=0, bounce=0.0, vvx=float('inf')):
         self.GAME = game
         self.x = (self.GAME.xx + size) / 2
         self.y = (self.GAME.yx + size) / 2
@@ -216,7 +267,8 @@ class Player:
         self.cx = self.x + (self.size / 2)
         self.cy = self.y + (self.size / 2)
         self.v = v                  ### DEPREC - Actual velocity
-        self.vx = vx                ### MaX accelerated Velocity
+        self.vx = vx                ### MaX Velocity
+        self.vvx = vvx              ### MaX Vector Velocity
         self.shift = {'x': 0, 'y': 0}   ### Speed vector for x, y
         self.dirs = {'x': 0, 'y': 0}    ### Normal vector to indicate direction
         # self.acct = 0             ### Timer in frames since last x movement
@@ -224,8 +276,8 @@ class Player:
         self.spf = spf              ### Shot per frame
         self.cardV = [0, 0, 0, 0]   ### DEPREC - Mean of the 4 accel vector i, j, -i, -j clockwise
         self.m = 0.05               ### Linear factor, aka thruster power
-        self.drag = drag
-        self.absV = 0
+        self.drag = {'air': drag, 'v-limit': v_limit}
+        self.absV = 0               ### Absolute velocity
         self.bounce = bounce
 
     def center_update(self):
@@ -248,22 +300,22 @@ class Player:
         else:
             self.v = 0
         """
-        # Inertia (cardinal); linear
+        # Inertia (cardinal); linear prop + increasing difficulty
         self.dirs['x'] = x
         self.dirs['y'] = y
         ## Increase (thruster on)
         self.shift['y'] += self.dirs['y'] * self.m
         self.shift['x'] += self.dirs['x'] * self.m
+        ## Limit in void (dust I guess ?)
+        ### WIP
         # print("PLAYER - Thrusters ON: x= " + str(self.dirs['x']) + ", y= " + str(self.dirs['y']))
 
-        ## Drag
-        if self.drag > 0:
-            self.shift['y'] -= self.m * self.drag
-            self.shift['x'] -= self.m * self.drag
+        ## Air drag
+        self.move_drag(self.drag['air'])
 
         ## Limit
-        self.shift['y'] = border(self.shift['y'], -self.vx, self.vx)
-        self.shift['x'] = border(self.shift['x'], -self.vx, self.vx)
+        self.shift['y'] = border(self.shift['y'], -self.vvx, self.vvx)
+        self.shift['x'] = border(self.shift['x'], -self.vvx, self.vvx)
 
         # Move
         self.absV = math.sqrt(self.shift['x'] ** 2 + self.shift['y'] ** 2)
@@ -279,18 +331,31 @@ class Player:
             ### Collision with wall + bounce
             if self.y > self.GAME.yx - self.size:
                 self.y = self.GAME.yx - self.size
-                self.shift['y'] = self.shift['y'] * -self.bounce
+                self.shift['y'] = int(self.shift['y'] * -self.bounce)
             elif self.y < 0:
                 self.y = 0
-                self.shift['y'] = self.shift['y'] * -self.bounce
+                self.shift['y'] = int(self.shift['y'] * -self.bounce)
             if self.x > self.GAME.xx - self.size:
                 self.x = self.GAME.xx - self.size
-                self.shift['x'] = self.shift['x'] * -self.bounce
+                self.shift['x'] = int(self.shift['x'] * -self.bounce)
             elif self.x < 0:
                 self.x = 0
-                self.shift['x'] = self.shift['x'] * -self.bounce
+                self.shift['x'] = int(self.shift['x'] * -self.bounce)
 
-
+    def move_drag(self, drag):
+        drag = drag * self.size/8
+        if drag != 0 and (self.shift['y'] != 0 or self.shift['x'] != 0):
+            if self.shift['y'] > 0:
+                self.shift['y'] -= self.shift['y'] * drag
+            elif self.shift['y'] < 0:
+                self.shift['y'] -= self.shift['y'] * drag
+            if self.shift['x'] > 0:
+                self.shift['x'] -= self.shift['x'] * drag
+            elif self.shift['x'] < 0:
+                self.shift['x'] -= self.shift['x'] * drag
+            ## Simplify movement
+            self.shift['x'] = round(self.shift['x'], 3)
+            self.shift['y'] = round(self.shift['y'], 3)
 
     def draw(self):
         pyxel.rect(self.x, self.y, self.size, self.size, 4)
@@ -351,5 +416,5 @@ class Shot:
 # EXEC
 
 print("GAME - Started")
-GAME = Game('Game1', 256, 256, fps=60, name='Detroix23', vx=float('inf'), pdrag=0, borders='tor', bounce=0.9)
+GAME = Game('Game1', 256, 256, fps=60, name='Detroix23', vx=float('inf'), pdrag=0.1, borders='tor', bounce=0.9)
 print("GAME - Finished")
