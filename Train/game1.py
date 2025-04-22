@@ -48,7 +48,7 @@ print(n, min, max, nc)
 """
 
 class Game:
-    def __init__(self, title, x=256, y=256, fps=30, name='', size=8, vx=4, spf=2, pdrag=0, borders='hard'):
+    def __init__(self, title, x=256, y=256, fps=30, name='', size=8, vx=4.0, spf=2, pdrag=0.0, borders='hard', bounce=0.0):
         # Init game board
         self.xx = x     ### X maX
         self.yx = y     ### Y maX
@@ -65,10 +65,20 @@ class Game:
         # Init player
         self.xmov = 0
         self.ymov = 0
-        self.vais = Player(self, name=name, size=size, vx=vx, spf=spf, drag=pdrag)
+        self.vais = Player(self, name=name, size=size, vx=vx, spf=spf, drag=pdrag, bounce=bounce)
 
         # Init shot list
-        self.shots_l = []
+        self.shots_p = []
+
+        # Init text
+        ## Fixed
+        self.tx = 10
+        self.ty = 10
+        self.tcol = 1
+        self.txts_main = ()
+        ## Temp
+        self.txts_temp = []
+
 
         # Launch the game, each frames per second
         print(f"GAME - Initialized {self.title} with x length = {self.xx}, y length = {self.yx} at {self.fps}fps")
@@ -78,24 +88,37 @@ class Game:
         return f"GAME - Running {self.title} with x length = {self.xx}, y length = {self.yx} at {self.fps}fps"
 
     def txt_main(self):
-        self.tx = 10
-        self.ty = 10
-        self.tcol = 1
-        self.txts_main = ["# Pyxel Game - title: " + self.title + "; borders=" + self.borders + ", fps=" + str(self.fps),
-                          "size: x=" + str(self.xx) + ", y=" + str(self.yx),
-                          "time: frames=" + str(pyxel.frame_count) + ", secs=" + str(round(pyxel.frame_count / self.fps, 1)),
-                          "player: " + self.vais.name,
-                          "pos: x=" + str(int(self.vais.x)) + ", y=" + str(int(self.vais.y)),
-                          "stats: size=" + str(self.vais.size) + ", spf=" + str(self.vais.spf),
-                          "velocity: absolute=" + str2(self.vais.absV) + ", max=" + str(self.vais.vx),
-                          "accel: linear-m=" + str2(self.vais.m) + ", drag=" + str2(self.vais.drag),
-                          "cardinal-v: y=" + str1(self.vais.cardV[0]) + ", x=" + str1(self.vais.cardV[1]) + ", -y=" + str1(self.vais.cardV[2]) + ", -x=" + str1(self.vais.cardV[3]),
-                          "shots: active=" + str(len(self.shots_l)) + ", total=" + str(self.shots_tot), # "per-sec=" + str(round(len(self.shots_l) / (self.timer / self.fps), 1))
-                          "---"]
-
+        self.txts_main = (
+            "# Pyxel Game - title: " + self.title + "; borders=" + self.borders + ", fps=" + str(self.fps),
+            "size: x=" + str(self.xx) + ", y=" + str(self.yx),
+            "time: frames=" + str(pyxel.frame_count) + ", secs=" + str(round(pyxel.frame_count / self.fps, 1)),
+            "player: " + self.vais.name,
+            "pos: x=" + str(int(self.vais.x)) + ", y=" + str(int(self.vais.y)),
+            "stats: size=" + str(self.vais.size) + ", spf=" + str(self.vais.spf),
+            "velocity: max=" + str(self.vais.vx) + ", absolute=" + str2(self.vais.absV),
+            "accel: power=" + str2(self.vais.m) + ", drag=" + str2(self.vais.drag) + ", bounce=" + str(
+                self.vais.bounce * 100) + "%",
+            "cardinal-v: y=" + str1(self.vais.shift['y']) + ", x=" + str1(self.vais.shift['x']),
+            "shots: active=" + str(len(self.shots_p)) + ", total=" + str(self.shots_tot),
+            # "per-sec=" + str(round(len(self.shots_p) / (self.timer / self.fps), 1))
+            "---")
         for txt in self.txts_main:
             pyxel.text(self.tx, self.ty, txt, self.tcol)
             self.ty += 6
+        self.ty = 10
+
+    def txt_temp_new(self, x, y, txt='No text', time=10.0, col=16):
+        self.txts_temp.append({'txt': txt, 'time': time, 'x': x, 'y': y, 'color': col})
+
+    def txt_temp_update(self):
+        for txt in self.txts_temp:
+            txt['time'] -= 1
+            if txt['time'] <= 0:
+                self.txts_temp.remove(txt)
+
+    def txt_temp_draw(self):
+        for txt in self.txts_temp:
+            pyxel.text(txt['x'], txt['y'], txt['txt'], txt['color'])
 
     def input_player(self):
         """
@@ -104,7 +127,7 @@ class Game:
         # Menus
         if pyxel.btn(pyxel.KEY_ESCAPE):
             pyxel.quit()
-        # Move. TODO correct wall collision system
+        # Move.
         if pyxel.btn(pyxel.KEY_RIGHT):
             self.xmov = 1
         if pyxel.btn(pyxel.KEY_DOWN):
@@ -117,7 +140,7 @@ class Game:
         if pyxel.btn(pyxel.KEY_SPACE) and pyxel.frame_count % self.vais.spf == 0: ### Limit to 1 shot per 2 frame
             #print("DEBUG - Player shot")
             self.shots_tot += 1
-            self.shots_l.append(Shot(self, self.vais.x + int(self.vais.size/2), self.vais.y - 6, w=2))
+            self.shots_p.append(Shot(self, self.shots_p, self.vais.x + int(self.vais.size / 2), self.vais.y - 6, w=2))
 
     def input_debug(self):
         """
@@ -127,12 +150,15 @@ class Game:
         if pyxel.btn(pyxel.KEY_O):
             self.vais.x = self.xx/2 - self.vais.size/2
             self.vais.y = self.yx/2 - self.vais.size/2
-
+        # Reset velocity
+        if pyxel.btn(pyxel.KEY_P):
+            self.vais.shift['x'] = 0
+            self.vais.shift['y'] = 0
         # Change velocity
         if pyxel.btn(pyxel.KEY_Z) and self.vais.v > 0:
-            self.vais.v -= 1
+            self.vais.m -= 0.01
         elif pyxel.btn(pyxel.KEY_X):
-            self.vais.v += 1
+            self.vais.m += 0.01
         # Change size
         if pyxel.btn(pyxel.KEY_C) and self.vais.size > 0:
             self.vais.size -= 1
@@ -157,8 +183,10 @@ class Game:
         self.xmov = 0
         self.ymov = 0
         # Shots
-        for shot in self.shots_l:
+        for shot in self.shots_p:
             shot.move()
+        # Text
+        self.txt_temp_update()
 
     """
     DRAWER
@@ -167,32 +195,44 @@ class Game:
         # Start fresh each time
         pyxel.cls(0)
 
-        # Text
+        # Text fixed
         self.txt_main()
+        # Text temp
+        self.txt_temp_draw()
         # Shots
-        for shot in self.shots_l:
+        for shot in self.shots_p:
             shot.draw()
         # Ship, draw a rectangle
         self.vais.draw()
-
+        self.vais.draw_vect(m=5)
 
 class Player:
-    def __init__(self, game, name='', size=8, v=2, vx=4, spf=2, drag=0):
+    def __init__(self, game, name='', size=8, v=2, vx=4.0, spf=2, drag=0.0, bounce=0.0):
         self.GAME = game
         self.x = (self.GAME.xx + size) / 2
         self.y = (self.GAME.yx + size) / 2
         self.name = name
         self.size = size
+        self.cx = self.x + (self.size / 2)
+        self.cy = self.y + (self.size / 2)
         self.v = v                  ### DEPREC - Actual velocity
         self.vx = vx                ### MaX accelerated Velocity
-        self.xshift = 0
-        self.yshift = 0
+        self.shift = {'x': 0, 'y': 0}   ### Speed vector for x, y
+        self.dirs = {'x': 0, 'y': 0}    ### Normal vector to indicate direction
         # self.acct = 0             ### Timer in frames since last x movement
         # self.accty = 0            ### Timer in frames since last y movement
         self.spf = spf              ### Shot per frame
-        self.cardV = [0, 0, 0, 0]   ### Mean of the 4 accel vector i, j, -i, -j clockwise
+        self.cardV = [0, 0, 0, 0]   ### DEPREC - Mean of the 4 accel vector i, j, -i, -j clockwise
         self.m = 0.05               ### Linear factor, aka thruster power
         self.drag = drag
+        self.absV = 0
+        self.bounce = bounce
+
+    def center_update(self):
+        ## Update center
+        self.cx = self.x + (self.size / 2)
+        self.cy = self.y + (self.size / 2)
+        return self.cx, self.cy
 
     def move(self, x, y):
         """
@@ -209,53 +249,76 @@ class Player:
             self.v = 0
         """
         # Inertia (cardinal); linear
+        self.dirs['x'] = x
+        self.dirs['y'] = y
         ## Increase (thruster on)
-        self.cardV[0] += y * self.m
-        self.cardV[1] += x * self.m
-        self.cardV[2] -= y * self.m
-        self.cardV[3] -= x * self.m
+        self.shift['y'] += self.dirs['y'] * self.m
+        self.shift['x'] += self.dirs['x'] * self.m
+        # print("PLAYER - Thrusters ON: x= " + str(self.dirs['x']) + ", y= " + str(self.dirs['y']))
+
         ## Drag
         if self.drag > 0:
-            self.cardV[0] -= self.m * self.drag
-            self.cardV[1] -= self.m * self.drag
-            self.cardV[2] -= self.m * self.drag
-            self.cardV[3] -= self.m * self.drag
+            self.shift['y'] -= self.m * self.drag
+            self.shift['x'] -= self.m * self.drag
 
         ## Limit
-        self.v = border(self.v, 0, self.vx)
-
-        ## Final shift
-        self.xshift = border(self.cardV[1] - self.cardV[3], min=-self.vx, max=self.vx)
-        self.yshift = border(self.cardV[0] - self.cardV[2], min=-self.vx, max=self.vx)
+        self.shift['y'] = border(self.shift['y'], -self.vx, self.vx)
+        self.shift['x'] = border(self.shift['x'], -self.vx, self.vx)
 
         # Move
-        self.absV = math.sqrt(self.xshift ** 2 + self.yshift ** 2)
-        self.x += self.xshift
-        self.y += self.yshift
+        self.absV = math.sqrt(self.shift['x'] ** 2 + self.shift['y'] ** 2)
+        self.x += self.shift['x']
+        self.y += self.shift['y']
+        ## Update center
+        self.center_update()
         ## Check borders
         if self.GAME.borders == 'tor':
-            self.cardV[0] = circular(self.cardV[0], 0, self.GAME.yx)
-            self.cardV[1] = circular(self.cardV[1], 0, self.GAME.xx)
-            self.cardV[2] = circular(self.cardV[2], 0, self.GAME.yx)
-            self.cardV[3] = circular(self.cardV[3], 0, self.GAME.xx)
+            self.y = circular(self.y, 0 - self.size, self.GAME.yx)
+            self.x = circular(self.x, 0 - self.size, self.GAME.xx)
         else:
-            self.cardV[0] = border(self.cardV[0], 0, self.GAME.yx)
-            self.cardV[1] = border(self.cardV[1], 0, self.GAME.xx)
-            self.cardV[2] = border(self.cardV[2], 0, self.GAME.yx)
-            self.cardV[3] = border(self.cardV[3], 0, self.GAME.xx)
+            ### Collision with wall + bounce
+            if self.y > self.GAME.yx - self.size:
+                self.y = self.GAME.yx - self.size
+                self.shift['y'] = self.shift['y'] * -self.bounce
+            elif self.y < 0:
+                self.y = 0
+                self.shift['y'] = self.shift['y'] * -self.bounce
+            if self.x > self.GAME.xx - self.size:
+                self.x = self.GAME.xx - self.size
+                self.shift['x'] = self.shift['x'] * -self.bounce
+            elif self.x < 0:
+                self.x = 0
+                self.shift['x'] = self.shift['x'] * -self.bounce
+
+
 
     def draw(self):
         pyxel.rect(self.x, self.y, self.size, self.size, 4)
 
+    def draw_vect(self, m=4):
+        """
+        Draw forces on the player
+        """
+        # Inertia (y, x)
+        pyxel.line(self.cx, self.cy, self.cx, self.cy + (self.shift['y'] * m), col=9)
+        pyxel.line(self.cx, self.cy, self.cx + (self.shift['x'] * m), self.cy, col=9)
+        #print("PLAYER - vect shift x: ", self.cx, self.cy, self.cx + (self.shift['x'] * m), self.cy)
+        # Thrusters (y, x)
+        pyxel.line(self.cx, self.cy, self.cx, self.cy + (self.dirs['y'] * self.m * m * 10), col=10)
+        pyxel.line(self.cx, self.cy, self.cx + (self.dirs['x'] * self.m * m * 10), self.cy, col=10)
+
+
 class Shot:
 
-    def __init__(self, game, x, y, w=2, h=8, v=2, team='WIP'):
+    def __init__(self, game, team, x, y, w=2, h=8, v=2):
         self.x = x
         self.y = y
         self.w = w          ### Width
         self.h = h          ### Height
         self.v = v          ### Velocity
         self.GAME = game    ### Actual gameboard
+        self.team = team
+        self.lifet = self.GAME.fps * 8      ### Life span in ticks
         # print("SHOT - Shot created; game recorded", self.GAME)
 
     def __str__(self):
@@ -264,16 +327,29 @@ class Shot:
     def move(self):
         ## Here only one dir, up
         self.y -= self.v
-        if self.y < self.GAME.yn - self.h + 1:
-            self.GAME.shots_l.remove(self)
-            # print("SHOTS - Shot deleted (out of bounds). List now:", self.GAME.shots_l)
+        if self.GAME.borders == 'tor':
+            self.y = circular(self.y, 0 - self.h, self.GAME.yx)
+            self.x = circular(self.x, 0 - self.w, self.GAME.xx)
+        elif self.y < self.GAME.yn - self.h + 1:
+            self.perish()
+            # print("SHOTS - Shot deleted (out of bounds). List now:", self.GAME.shots_p)
+        ## Update lifespan
+        self.lifet -= 1
+        if self.lifet < 0:
+            self.perish()
+
 
     def draw(self):
         pyxel.rect(self.x, self.y, self.w, self.h, 10)
 
 
+    def perish(self):
+        self.GAME.shots_p.remove(self)
+
+
+
 # EXEC
 
 print("GAME - Started")
-GAME = Game('Game1', 256, 256, name='Detroix23', pdrag=0.1, borders='hard')
+GAME = Game('Game1', 256, 256, fps=60, name='Detroix23', vx=float('inf'), pdrag=0, borders='tor', bounce=0.9)
 print("GAME - Finished")
