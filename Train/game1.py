@@ -48,7 +48,10 @@ print(n, min, max, nc)
 """
 
 class Game:
-    def __init__(self, title, x=256, y=256, fps=30, name='', size=8, vx=4.0, spf=2, pdrag=0.0, borders='hard', bounce=0.0):
+    def __init__(self, title, x=256, y=256, fps=30,                             ### Default world
+                 name='', size=8, vx=4.0, spf=2, pvn=0.0, pvx=0.5, pvs=0.1, psdec=0,       ### Player
+                 pdrag=0.0, borders='hard', bounce=0.0                          ### Phys
+                 ):
         # Init game board
         self.xx = x     ### X maX
         self.yx = y     ### Y maX
@@ -57,14 +60,22 @@ class Game:
         self.fps = fps
         self.title = title
         self.shots_tot = 0
-        self.borders = borders
+        self.param = {'borders': borders,
+                      'pdrag': pdrag,
+                      'bounce': bounce,
+                      'pVn': pvn,       ### Player Velocity miN
+                      'pVx': pvx,       ### Player Velocity maX
+                      'pSdec': psdec   ### Player Shoot DECeleration
+                      }
+        self.ins = {'m': pvs           ### player power slider force
+                    }
 
         pyxel.init(self.xx, self.yx, title=self.title, fps=self.fps)
 
         # Init player
         self.xmov = 0
         self.ymov = 0
-        self.vais = Player(self, name=name, size=size, vx=vx, spf=spf, drag=pdrag, bounce=bounce)
+        self.vais = Player(self, name=name, size=size, vx=vx, spf=spf, drag=pdrag, bounce=bounce, pvn=pvn, pvx=pvx, pvs=pvs, psdec=psdec)
 
         # Init shot list
         self.shots_p = []
@@ -92,15 +103,14 @@ class Game:
 
     def txt_main(self):
         self.txts_main = (
-            "# Pyxel Game - title: " + self.title + "; borders=" + self.borders + ", fps=" + str(self.fps),
+            "# Pyxel Game - title: " + self.title + "; borders=" + self.param['borders'] + ", fps=" + str(self.fps),
             "size: x=" + str(self.xx) + ", y=" + str(self.yx),
             "time: frames=" + str(pyxel.frame_count) + ", secs=" + str(round(pyxel.frame_count / self.fps, 1)),
             "player: " + self.vais.name,
             "pos: x=" + str(int(self.vais.x)) + ", y=" + str(int(self.vais.y)),
             "stats: size=" + str(self.vais.size) + ", spf=" + str(self.vais.spf),
-            "velocity: max=" + str(self.vais.vx) + ", absolute=" + str2(self.vais.absV),
-            "accel: power=" + str2(self.vais.m) + ", air-drag=" + str2(self.vais.drag['air']) + ", bounce=" + str(
-                self.vais.bounce * 100) + "%",
+            "velocity: max=" + str(self.vais.v['max']) + ", min=" + str(self.vais.v['min']) + ", absolute=" + str2(self.vais.absV),
+            "accel: power=" + str2(self.vais.m) + ", air-drag=" + str2(self.vais.drag['air']) + ", bounce=" + str(self.vais.bounce * 100) + "%",
             "cardinal-v: y=" + str1(self.vais.shift['y']) + ", x=" + str1(self.vais.shift['x']),
             "shots: active=" + str(len(self.shots_p)) + ", total=" + str(self.shots_tot),
             # "per-sec=" + str(round(len(self.shots_p) / (self.timer / self.fps), 1))
@@ -179,19 +189,21 @@ class Game:
         # Brake
         if pyxel.btn(pyxel.KEY_P) or pyxel.btn(pyxel.KEY_CTRL):
             ## Smooth drag
-            self.txt_temp_new(self.vais.cx - 6, self.vais.y - 8, id='in-brake', txt='STOP!', time=2, col=7, dn=0)
-            self.vais.move_drag(self.vais.drag['air'] * 2 + 0.1)
-        # Change velocity
-        if pyxel.btn(pyxel.KEY_Z) and self.vais.m > 0.01:
-            self.vais.m -= 0.01
-        if pyxel.btn(pyxel.KEY_X) and self.vais.m < self.vais.vx:
-            self.vais.m += 0.01
+            self.txt_temp_new(self.vais.cx - 6, self.vais.y - 8, id='in-brake', txt='BRAKE!', time=2, col=7, dn=0)
+            self.vais.move_drag(self.vais.m)
+        # Change power
+        if pyxel.btn(pyxel.KEY_Z) and self.vais.m > self.vais.v['min']:
+            ## Decrease
+            self.vais.m -= self.ins['m']
+        if pyxel.btn(pyxel.KEY_X) and self.vais.m < self.vais.v['max']:
+            ## Increase
+            self.vais.m += self.ins['m']
 
         # Shoot
         if pyxel.btn(pyxel.KEY_SPACE) and pyxel.frame_count % self.vais.spf == 0: ### Limit to 1 shot per 2 frame
             #print("DEBUG - Player shot")
             self.shots_tot += 1
-            self.shots_p.append(Shot(self, self.shots_p, self.vais.x + int(self.vais.size / 2), self.vais.y - 6, w=2))
+            self.shots_p.append(Shot(self, self.shots_p, self.vais.cx, self.vais.cy, w=2, decel=self.param['pSdec']))
 
     def input_debug(self):
         """
@@ -258,7 +270,7 @@ class Game:
         self.vais.draw_vect(m=5)
 
 class Player:
-    def __init__(self, game, name='', size=8, v=2, vx=4.0, spf=2, drag=0.0, v_limit=0, bounce=0.0, vvx=float('inf')):
+    def __init__(self, game, name='', size=8, v=2, vx=4.0, spf=2, drag=0.0, v_limit=0, bounce=0.0, vvx=float('inf'), pvn=0, pvx=0.5, pvs=0.05, psdec=0.005):
         self.GAME = game
         self.x = (self.GAME.xx + size) / 2
         self.y = (self.GAME.yx + size) / 2
@@ -266,8 +278,7 @@ class Player:
         self.size = size
         self.cx = self.x + (self.size / 2)
         self.cy = self.y + (self.size / 2)
-        self.v = v                  ### DEPREC - Actual velocity
-        self.vx = vx                ### MaX Velocity
+        self.v = {'min': pvn, 'max': pvx, 'slide-m': pvs}
         self.vvx = vvx              ### MaX Vector Velocity
         self.shift = {'x': 0, 'y': 0}   ### Speed vector for x, y
         self.dirs = {'x': 0, 'y': 0}    ### Normal vector to indicate direction
@@ -300,7 +311,7 @@ class Player:
         else:
             self.v = 0
         """
-        # Inertia (cardinal); linear prop + increasing difficulty
+        # Inertia (cardinal); linear prop
         self.dirs['x'] = x
         self.dirs['y'] = y
         ## Increase (thruster on)
@@ -324,7 +335,7 @@ class Player:
         ## Update center
         self.center_update()
         ## Check borders
-        if self.GAME.borders == 'tor':
+        if self.GAME.param['borders'] == 'tor':
             self.y = circular(self.y, 0 - self.size, self.GAME.yx)
             self.x = circular(self.x, 0 - self.size, self.GAME.xx)
         else:
@@ -351,13 +362,13 @@ class Player:
         drag = drag * (self.size / 8)
         if drag != 0 and (self.shift['y'] != 0 or self.shift['x'] != 0):
             if self.shift['y'] > 0:
-                self.shift['y'] -= self.shift['y']**2 * drag
+                self.shift['y'] -= self.absV * drag
             elif self.shift['y'] < 0:
-                self.shift['y'] += self.shift['y']**2 * drag
+                self.shift['y'] += self.absV * drag
             if self.shift['x'] > 0:
-                self.shift['x'] -= self.shift['x']**2 * drag
+                self.shift['x'] -= self.absV * drag
             elif self.shift['x'] < 0:
-                self.shift['x'] += self.shift['x']**2 * drag
+                self.shift['x'] += self.absV * drag
 
     def draw(self):
         pyxel.rect(self.x, self.y, self.size, self.size, 4)
@@ -377,14 +388,18 @@ class Player:
 
 class Shot:
 
-    def __init__(self, game, team, x, y, w=2, h=8, v=2):
+    def __init__(self, game, team, x, y, w=2, h=8, v=2, direction=(0, -1), decel=0.0):
         self.x = x
         self.y = y
+        self.yOld = y
+        self.xOld = x
         self.w = w          ### Width
         self.h = h          ### Height
         self.v = v          ### Velocity
+        self.decel = decel  ### Deceleration
         self.GAME = game    ### Actual gameboard
         self.team = team
+        self.direction = direction          ### Normalized vector
         self.lifet = self.GAME.fps * 8      ### Life span in ticks
         # print("SHOT - Shot created; game recorded", self.GAME)
 
@@ -392,9 +407,17 @@ class Shot:
         return f"SHOT - x={self.x}, y={self.y}, w={self.w}, h={self.h}, v={self.v}"
 
     def move(self):
-        ## Here only one dir, up
-        self.y -= self.v
-        if self.GAME.borders == 'tor':
+        # Move and collisions
+        ## Vector movement
+        ### Save old position
+        self.xOld = self.x
+        self.yOld = self.y
+        ### Update them
+        self.x += self.direction[0] * self.v
+        self.y += self.direction[1] * self.v
+
+        ## Check collisions
+        if self.GAME.param['borders'] == 'tor':
             self.y = circular(self.y, 0 - self.h, self.GAME.yx)
             self.x = circular(self.x, 0 - self.w, self.GAME.xx)
         elif self.y < self.GAME.yn - self.h + 1:
@@ -405,10 +428,31 @@ class Shot:
         if self.lifet < 0:
             self.perish()
 
+        ## Deceleration
+        self.v = self.v - self.v * self.decel
+
+        ## Simplify
+        ### Simply velocity
+        if 0.02 > self.v:
+            self.v = 0
+
 
     def draw(self):
-        pyxel.rect(self.x, self.y, self.w, self.h, 10)
-
+        """
+        Draws the shot, multiple method tested
+        """
+        # Line with width
+        """
+        for l in range(self.w):
+            shift = l + (self.w / 2)
+            pyxel.line(self.x - shift, self.y, self.x - shift, self.y + self.h, col=10)
+        """
+        # Vector speed
+        """
+        pyxel.line(self.xOld, self.yOld, self.x, self.y, col=10)
+        """
+        # True shot (with height)
+        pyxel.line(self.x, self.y, self.x + self.h * self.direction[0], self.y + self.h * self.direction[1], col=10)
 
     def perish(self):
         self.GAME.shots_p.remove(self)
@@ -418,5 +462,8 @@ class Shot:
 # EXEC
 
 print("GAME - Started")
-GAME = Game('Game1', 256, 256, fps=60, name='Detroix23', vx=float('inf'), pdrag=0.02, borders='tor', bounce=0.9)
+GAME = Game('Game1', 256, 256, fps=60, borders='hard',                    ### World
+            name='Detroix23', pvn=0.05, pvx=0.15, pvs=0.005, psdec=0.005,           ### Player
+            vx=float('inf'), pdrag=0.01, bounce=0.9                                 ### Physics
+            )
 print("GAME - Finished")
