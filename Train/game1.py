@@ -49,9 +49,13 @@ print(n, min, max, nc)
 
 class Game:
     def __init__(self, title, x=256, y=256, fps=30,                             ### Default world
-                 name='', size=8, vx=4.0, spf=2, pvn=0.0, pvx=0.5, pvs=0.1, psdec=0,       ### Player
+                 name='', size=8, vx=4.0, spf=2, pvn=0.0, pvx=0.5, pvs=0.1, psdec=0.0,       ### Player
                  pdrag=0.0, borders='hard', bounce=0.0                          ### Phys
                  ):
+
+        # Init logs
+        self.Logs = [{'t': 0, 'msg': 'Logs initialized'}] ## List of {Timer in frames, Log}
+
         # Init game board
         self.xx = x     ### X maX
         self.yx = y     ### Y maX
@@ -71,6 +75,7 @@ class Game:
                     }
 
         pyxel.init(self.xx, self.yx, title=self.title, fps=self.fps)
+        self.Logs.append({'t': 0, 'msg': 'Game initialized'})
 
         # Init player
         self.xmov = 0
@@ -79,6 +84,11 @@ class Game:
 
         # Init shot list
         self.shots_p = []
+
+        # Init enemies
+        self.enemies = []
+        ## DEBUG - Test
+        self.enemies.append(Enemy(self, 100, 100, direction=(0, -1), v=1, size=10, behaviour={'type': 'claws'}))
 
         # Init Timers
         self.timer = 0          ### DEPREC - Better use pyxel.frame_count
@@ -93,10 +103,10 @@ class Game:
         ## Temp
         self.txts_temp = []
 
-
         # Launch the game, each frames per second
         print(f"GAME - Initialized {self.title} with x length = {self.xx}, y length = {self.yx} at {self.fps}fps")
         pyxel.run(self.update, self.draw)
+        self.Logs.append({'t': 0, 'msg': 'Game launched'})
 
     def __str__(self):
         return f"GAME - Running {self.title} with x length = {self.xx}, y length = {self.yx} at {self.fps}fps"
@@ -121,7 +131,7 @@ class Game:
         self.ty = 10
 
     def txt_temp_new(self, x, y, id, txt='No text', time=10.0, col=16, dn=None, dx=None):
-        self.delay_new("in-brake", dn, dx) ### Create if delays doesnt already exists
+        self.delay_new("in-brake", dn, dx)  ### Create if delays doesnt already exists
         if self.delay_check(id):
             self.delay_use(id)
             self.txts_temp.append({'txt': txt, 'time': time, 'x': x, 'y': y, 'color': col})
@@ -136,37 +146,59 @@ class Game:
         for txt in self.txts_temp:
             pyxel.text(txt['x'], txt['y'], txt['txt'], txt['color'])
 
-    def delay_new(self, id, delay_min, delay_max=None):
+    def delay_new(self, delay_id, delay_min, delay_max=None, cx=None):
         """
-        Create a new delay
+        Create a new delay in ticks
         """
         state = False
-        if id not in self.delays and delay_min is not None:
-            self.delays[id] = {'t': delay_min, 'dn': delay_min, 'dx': delay_max}
+        if delay_id not in self.delays and delay_min is not None:
+            self.delays[delay_id] = {'t': 0, 'dn': delay_min, 'dx': delay_max, 'cx': cx, 'c': 0}
             state = True
         return state
 
-    def delay_check(self, id):
+    def delay_check(self, delay_id):
         """
-        Check delay time. Return False if in cooldown, True otherwise
+        Check delay time. Return False if in cooldown, True if not, and None if non existant
         """
-        auth = False
-        if self.delays[id]['t'] > self.delays[id]['dn']:
-            auth = True
+        if delay_id in self.delays:
+            print("DELAYS - Time:", self.delays[delay_id]['t'])
+            if self.delays[delay_id]['t'] > self.delays[delay_id]['dn']:
+                auth = True
+            else:
+                auth = False
+        else:
+            auth = None
+
         return auth
 
-    def delay_use(self, id):
-        self.delays[id]['t'] = 0
+    def delay_use(self, delay_id):
+        """
+        Reset delay to zero, even if cooldown not ready
+        """
+        self.delays[delay_id]['t'] = 0
 
     def delay_update(self):
         """
         Update delays' timer
         """
+        """
+        ## Iterate with a manual copy
+        delaysUpdate = self.delays
         for id in self.delays:
-            self.delays[id]['t'] += 1
-            if self.delays[id]['dx'] is not None:
-                if self.delays[id]['t'] <= self.delays[id]['dx']:
-                    del self.delays[id]
+            delaysUpdate[id]['t'] += 1
+            if delaysUpdate[id]['dx'] is not None:
+                if delaysUpdate[id]['t'] <= delaysUpdate[id]['dx']:
+                    del delaysUpdate[id]
+        ## Update new delays from delays that existed (old)
+        self.delays = delaysUpdate
+        """
+        for delay_id in self.delays:
+            self.delays[delay_id]['t'] += 1
+            if self.delays[delay_id]['dx'] is not None:
+                if self.delays[delay_id]['t'] <= self.delays[delay_id]['dx']:
+                    del self.delays[delay_id]
+
+
 
 
 
@@ -235,19 +267,25 @@ class Game:
         # Timer. DEPREC - use pyxel.frame_count
         self.timer += 1
 
-        # Input controls
+        # Player
+        ## Input controls
         self.input_player()
         # Debug controls
         self.input_debug()
-        # Movement calc
+        ## Movement calc
         self.vais.move(self.xmov, self.ymov)
         self.xmov = 0
         self.ymov = 0
         # Shots
         for shot in self.shots_p:
             shot.move()
+        # Enemies
+        for enemy in self.enemies:
+            enemy.move_ai()
+
         # Text
         self.txt_temp_update()
+
         # Delays
         self.delay_update()
 
@@ -262,15 +300,19 @@ class Game:
         self.txt_main()
         # Text temp
         self.txt_temp_draw()
-        # Shots
-        for shot in self.shots_p:
-            shot.draw()
         # Ship, draw a rectangle
         self.vais.draw()
         self.vais.draw_vect(m=5)
+        # Shots
+        for shot in self.shots_p:
+            shot.draw()
+        # Enemies
+        for enemy in self.enemies:
+            enemy.draw()
+
 
 class Player:
-    def __init__(self, game, name='', size=8, v=2, vx=4.0, spf=2, drag=0.0, v_limit=0, bounce=0.0, vvx=float('inf'), pvn=0, pvx=0.5, pvs=0.05, psdec=0.005):
+    def __init__(self, game, name='', size=8, v=2, vx=4.0, spf=2, drag=0.0, v_limit=0, bounce=0.0, vvx=float('inf'), pvn=0.0, pvx=0.5, pvs=0.05, psdec=0.005):
         self.GAME = game
         self.x = (self.GAME.xx + size) / 2
         self.y = (self.GAME.yx + size) / 2
@@ -386,6 +428,73 @@ class Player:
         pyxel.line(self.cx, self.cy, self.cx + (self.dirs['x'] * self.m * m * 10), self.cy, col=10)
 
 
+class Enemy:
+    types = [
+        '',
+        'claws'
+    ]
+    def __init__(self, game, x, y, direction, v=1, size=10, behaviour=None, col=7):
+        self.GAME = game
+        self.x = x
+        self.y = y
+        self.col = col
+        self.size = size
+        self.behave = behaviour or {'type': 'claws'}
+        self.type = behaviour['type']
+        self.direction = [direction[0], direction[1]]
+        self.v = v
+        self.delay_retreat = 0
+
+        if self.type == 'claws':
+            self.claw = {'lim': random.randint(20, 80), 'dw': 0, 'stage': 'attacking'}
+
+    def perish(self):
+        self.GAME.enemies.remove(self)
+
+    def move(self):
+        self.x += self.direction[0] * self.v
+        self.y += self.direction[1] * self.v
+    def move_ai(self):
+        if self.type == 'claws':
+            ## Advance til a limit, then wait and go back
+            if self.claw['stage'] == 'attacking':
+                if self.claw['dw'] >= self.claw['lim']:
+                    self.claw['stage'] = 'waiting'
+                self.move()
+                self.claw['dw'] += 1
+
+            elif self.claw['stage'] == 'waiting':
+                self.delay_retreat = self.GAME.delay_check(self)
+                #print("ENEMY - Delay check: " + str(self.delay_retreat))
+                if self.delay_retreat is None:
+                    ### Start a timer
+                    self.GAME.delay_new(self, 180, None, 1)
+                    print("ENEMY - New timer; waiting fleeing")
+                elif self.delay_retreat is False:
+                    pass
+                elif self.delay_retreat is True:
+                    ### Turn when timer's off
+                    self.GAME.delay_use(self)
+                    self.direction[0] = -self.direction[0]
+                    self.direction[1] = -self.direction[1]
+                    self.claw['stage'] = 'fleeing'
+
+            else:   ## self.claw['stage'] == 'fleeing'
+                self.move()
+                self.claw['dw'] -= 1
+                if self.claw['dw'] < 0:
+                    ### Loop to original pos
+                    self.perish()
+
+        else:
+            ## Incorrect type
+            self.perish()
+
+    def draw(self):
+        pyxel.rect(self.x, self.y, self.size, self.size, 4)
+
+
+
 class Shot:
 
     def __init__(self, game, team, x, y, w=2, h=8, v=2, direction=(0, -1), decel=0.0):
@@ -420,8 +529,10 @@ class Shot:
         if self.GAME.param['borders'] == 'tor':
             self.y = circular(self.y, 0 - self.h, self.GAME.yx)
             self.x = circular(self.x, 0 - self.w, self.GAME.xx)
-        elif self.y < self.GAME.yn - self.h + 1:
-            self.perish()
+        ### Hard border and other
+        else:
+            if self.x < self.GAME.xn or self.x > self.GAME.xx or self.y < self.GAME.yn or self.y > self.GAME.yx:
+                self.perish()
             # print("SHOTS - Shot deleted (out of bounds). List now:", self.GAME.shots_p)
         ## Update lifespan
         self.lifet -= 1
@@ -460,10 +571,16 @@ class Shot:
 
 
 # EXEC
+launch_mode = 'Classic'
+#launch_mode = 'Function testing'
 
-print("GAME - Started")
-GAME = Game('Game1', 256, 256, fps=60, borders='hard',                    ### World
-            name='Detroix23', pvn=0.05, pvx=0.15, pvs=0.005, psdec=0.005,           ### Player
-            vx=float('inf'), pdrag=0.01, bounce=0.9                                 ### Physics
-            )
-print("GAME - Finished")
+if launch_mode == 'Classic':
+    print("GAME - Started")
+    GAME = Game('Game1', 256, 256, fps=60, borders='hard',                    ### World
+                name='Detroix23', pvn=0.05, pvx=0.15, pvs=0.005, psdec=0.005,           ### Player
+                vx=float('inf'), pdrag=0.01, bounce=0.95                                ### Physics
+                )
+    print("GAME - Finished")
+
+elif launch_mode == 'Function testing':
+    print("FT - Started")
