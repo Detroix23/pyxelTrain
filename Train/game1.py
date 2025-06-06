@@ -49,7 +49,7 @@ print(n, min, max, nc)
 
 class Game:
     def __init__(self, title, x=256, y=256, fps=30,                             ### Default world
-                 name='', size=8, vx=4.0, spf=2, pvn=0.0, pvx=0.5, pvs=0.1, psdec=0.0,       ### Player
+                 name='', size=8, vx=4.0, spf=2, pvn=0.0, pvx=0.5, pvs=0.1, psdec=0.0, psv=2.0,      ### Player
                  pdrag=0.0, borders='hard', bounce=0.0                          ### Phys
                  ):
 
@@ -69,9 +69,13 @@ class Game:
                       'bounce': bounce,
                       'pVn': pvn,       ### Player Velocity miN
                       'pVx': pvx,       ### Player Velocity maX
-                      'pSdec': psdec   ### Player Shoot DECeleration
+                      'pSdec': psdec,   ### Player Shoot DECeleration
+                      'pSv': psv
                       }
         self.ins = {'m': pvs           ### player power slider force
+                    }
+        self.locks = {
+                    'shoot': False
                     }
 
         pyxel.init(self.xx, self.yx, title=self.title, fps=self.fps)
@@ -93,6 +97,7 @@ class Game:
         # Init Timers
         self.timer = 0          ### DEPREC - Better use pyxel.frame_count
         self.delays = {}
+        self.delay_new('inp_lockAttack', 6)
 
         # Init text
         ## Fixed
@@ -146,22 +151,24 @@ class Game:
         for txt in self.txts_temp:
             pyxel.text(txt['x'], txt['y'], txt['txt'], txt['color'])
 
-    def delay_new(self, delay_id, delay_min, delay_max=None, cx=None):
+    # DELAYS
+    def delay_new(self, delay_id, delay_min, delay_max=None, cx=None, autoUse=False):
         """
         Create a new delay in ticks
         """
         state = False
         if delay_id not in self.delays and delay_min is not None:
-            self.delays[delay_id] = {'t': 0, 'dn': delay_min, 'dx': delay_max, 'cx': cx, 'c': 0}
+            self.delays[delay_id] = {'t': 0, 'dn': delay_min, 'dx': delay_max, 'cx': cx, 'c': 0, 'autoUse': autoUse}
             state = True
         return state
 
-    def delay_check(self, delay_id):
+    def delay_check(self, delay_id, debug=False):
         """
         Check delay time. Return False if in cooldown, True if not, and None if non existant
         """
         if delay_id in self.delays:
-            print("DELAYS - Time:", self.delays[delay_id]['t'])
+            if debug:
+                print("DELAYS - Time:", self.delays[delay_id]['t'])
             if self.delays[delay_id]['t'] > self.delays[delay_id]['dn']:
                 auth = True
             else:
@@ -197,8 +204,11 @@ class Game:
             if self.delays[delay_id]['dx'] is not None:
                 if self.delays[delay_id]['t'] <= self.delays[delay_id]['dx']:
                     del self.delays[delay_id]
+            if self.delays[delay_id]['autoUse'] and self.delays[delay_id]['t'] >= self.delays[delay_id]['dn']:
+                self.delay_use(delay_id)
 
-
+    ## Fixed delays
+    ### cf Constructor
 
 
 
@@ -209,7 +219,13 @@ class Game:
         # Menus
         if pyxel.btn(pyxel.KEY_ESCAPE):
             pyxel.quit()
-        # Move.
+        # Move
+        ## Brake
+        if pyxel.btn(pyxel.KEY_P) or pyxel.btn(pyxel.KEY_CTRL):
+            ### Smooth drag
+            self.txt_temp_new(self.vais.cx - 6, self.vais.y - 8, id='in-brake', txt='BRAKE!', time=2, col=7, dn=0)
+            self.vais.move_drag(self.vais.m)
+        ## Directions
         if pyxel.btn(pyxel.KEY_RIGHT):
             self.xmov = 1
         if pyxel.btn(pyxel.KEY_DOWN):
@@ -218,11 +234,7 @@ class Game:
             self.xmov = -1
         if pyxel.btn(pyxel.KEY_UP):
             self.ymov = -1
-        # Brake
-        if pyxel.btn(pyxel.KEY_P) or pyxel.btn(pyxel.KEY_CTRL):
-            ## Smooth drag
-            self.txt_temp_new(self.vais.cx - 6, self.vais.y - 8, id='in-brake', txt='BRAKE!', time=2, col=7, dn=0)
-            self.vais.move_drag(self.vais.m)
+
         # Change power
         if pyxel.btn(pyxel.KEY_Z) and self.vais.m > self.vais.v['min']:
             ## Decrease
@@ -232,10 +244,15 @@ class Game:
             self.vais.m += self.ins['m']
 
         # Shoot
-        if pyxel.btn(pyxel.KEY_SPACE) and pyxel.frame_count % self.vais.spf == 0: ### Limit to 1 shot per 2 frame
+        if pyxel.btn(pyxel.KEY_SPACE) and pyxel.frame_count % self.vais.spf == 0: ### Limit to 1 shot per spf frame
             #print("DEBUG - Player shot")
-            self.shots_tot += 1
-            self.shots_p.append(Shot(self, self.shots_p, self.vais.cx, self.vais.cy, w=2, decel=self.param['pSdec']))
+            self.vais.attack()
+        ## Lock shoot
+        if pyxel.btn(pyxel.KEY_C):
+            if self.delay_check('inp_lockAttack'):
+                self.delay_use('inp_lockAttack')
+                self.locks['shoot'] = not self.locks['shoot']
+            ### Then, check lock functions
 
     def input_debug(self):
         """
@@ -253,9 +270,9 @@ class Game:
 
 
         # Change size
-        if pyxel.btn(pyxel.KEY_C) and self.vais.size > 0:
+        if pyxel.btn(pyxel.KEY_PAGEUP) and self.vais.size > 0:
             self.vais.size -= 1
-        elif pyxel.btn(pyxel.KEY_V) and self.vais.size < 256:
+        elif pyxel.btn(pyxel.KEY_PAGEDOWN) and self.vais.size < 256:
             self.vais.size += 1
 
 
@@ -303,6 +320,7 @@ class Game:
         # Ship, draw a rectangle
         self.vais.draw()
         self.vais.draw_vect(m=5)
+        self.vais.draw_stats()
         # Shots
         for shot in self.shots_p:
             shot.draw()
@@ -311,8 +329,10 @@ class Game:
             enemy.draw()
 
 
+
 class Player:
-    def __init__(self, game, name='', size=8, v=2, vx=4.0, spf=2, drag=0.0, v_limit=0, bounce=0.0, vvx=float('inf'), pvn=0.0, pvx=0.5, pvs=0.05, psdec=0.005):
+    def __init__(self, game, name='', size=8, v=2, vx=4.0, spf=2, drag=0.0, v_limit=0, bounce=0.0, vvx=float('inf'),
+                 pvn=0.0, pvx=0.5, pvs=0.05, psdec=0.005, startingMun=5000, startingLife=5):
         self.GAME = game
         self.x = (self.GAME.xx + size) / 2
         self.y = (self.GAME.yx + size) / 2
@@ -322,8 +342,8 @@ class Player:
         self.cy = self.y + (self.size / 2)
         self.v = {'min': pvn, 'max': pvx, 'slide-m': pvs}
         self.vvx = vvx              ### MaX Vector Velocity
-        self.shift = {'x': 0, 'y': 0}   ### Speed vector for x, y
-        self.dirs = {'x': 0, 'y': 0}    ### Normal vector to indicate direction
+        self.shift = {'x': 0.0, 'y': 0.0}   ### Speed vector for x, y
+        self.dirs = {'x': 0.0, 'y': 0.0}    ### Normal vector to indicate direction
         # self.acct = 0             ### Timer in frames since last x movement
         # self.accty = 0            ### Timer in frames since last y movement
         self.spf = spf              ### Shot per frame
@@ -332,6 +352,12 @@ class Player:
         self.drag = {'air': drag, 'v-limit': v_limit}
         self.absV = 0               ### Absolute velocity
         self.bounce = bounce
+        ### Combat
+        self.shotDirs = (0, -1)
+        self.munitions = startingMun
+        self.life = startingLife
+        ### Repr
+        self.stats = {'x': self.GAME.xx - 10, 'y': self.GAME.yx + 10, 'h': (self.GAME.xx + 30) / 3, 'w': (self.GAME.yx + 20) / 10}
 
     def center_update(self):
         ## Update center
@@ -353,6 +379,8 @@ class Player:
         else:
             self.v = 0
         """
+        # Locks
+        self.locks_actions()
         # Inertia (cardinal); linear prop
         self.dirs['x'] = x
         self.dirs['y'] = y
@@ -384,16 +412,17 @@ class Player:
             ### Collision with wall + bounce
             if self.y > self.GAME.yx - self.size:
                 self.y = self.GAME.yx - self.size
-                self.shift['y'] = int(self.shift['y'] * -self.bounce)
+                self.shift['y'] = self.shift['y'] * -self.bounce
             elif self.y < 0:
                 self.y = 0
-                self.shift['y'] = int(self.shift['y'] * -self.bounce)
+                self.shift['y'] = self.shift['y'] * -self.bounce
             if self.x > self.GAME.xx - self.size:
                 self.x = self.GAME.xx - self.size
-                self.shift['x'] = int(self.shift['x'] * -self.bounce)
+                self.shift['x'] = self.shift['x'] * -self.bounce
             elif self.x < 0:
                 self.x = 0
-                self.shift['x'] = int(self.shift['x'] * -self.bounce)
+                self.shift['x'] = self.shift['x'] * -self.bounce
+
         ## Simply movement
         if 0.01 > self.shift['x'] > -0.01:
             self.shift['x'] = 0
@@ -427,13 +456,32 @@ class Player:
         pyxel.line(self.cx, self.cy, self.cx, self.cy + (self.dirs['y'] * self.m * m * 10), col=10)
         pyxel.line(self.cx, self.cy, self.cx + (self.dirs['x'] * self.m * m * 10), self.cy, col=10)
 
+    def draw_stats(self):
+        # Stats
+        ## Life
+        pyxel.rectb(self.stats['x'], self.stats['y'] + self.stats['h'], self.stats['w'], self.stats['h'], col=8)
+
+    def attack(self):
+        self.GAME.shots_tot += 1
+        ## Fix the not moving point shots
+        if tuple(self.dirs.values()) != (0, 0):
+            self.shotDirs = tuple(self.dirs.values())
+        self.GAME.shots_p.append(Shot(self.GAME, self.GAME.shots_p, self.cx, self.cy, direction=self.shotDirs, w=2,
+                                      v=self.GAME.param['pSv'], decel=self.GAME.param['pSdec']))
+
+    def locks_actions(self):
+        """
+        Effect of all toggled action
+        """
+        if self.GAME.locks['shoot']:
+            self.attack()
 
 class Enemy:
     types = [
         '',
         'claws'
     ]
-    def __init__(self, game, x, y, direction, v=1, size=10, behaviour=None, col=7):
+    def __init__(self, game, x, y, direction, v=1, size=10, behaviour=None, col=7, startingLife=5):
         self.GAME = game
         self.x = x
         self.y = y
@@ -444,6 +492,7 @@ class Enemy:
         self.direction = [direction[0], direction[1]]
         self.v = v
         self.delay_retreat = 0
+        self.life = startingLife
 
         if self.type == 'claws':
             self.claw = {'lim': random.randint(20, 80), 'dw': 0, 'stage': 'attacking'}
@@ -547,7 +596,6 @@ class Shot:
         if 0.02 > self.v:
             self.v = 0
 
-
     def draw(self):
         """
         Draws the shot, multiple method tested
@@ -569,18 +617,18 @@ class Shot:
         self.GAME.shots_p.remove(self)
 
 
-
 # EXEC
-launch_mode = 'Classic'
-#launch_mode = 'Function testing'
+if __name__ == "__main__":
+    launch_mode = 'Classic'
+    #launch_mode = 'Function testing'
 
-if launch_mode == 'Classic':
-    print("GAME - Started")
-    GAME = Game('Game1', 256, 256, fps=60, borders='hard',                    ### World
-                name='Detroix23', pvn=0.05, pvx=0.15, pvs=0.005, psdec=0.005,           ### Player
-                vx=float('inf'), pdrag=0.01, bounce=0.95                                ### Physics
-                )
-    print("GAME - Finished")
+    if launch_mode == 'Classic':
+        print("GAME - Started")
+        GAME = Game('Game1', 256, 256, fps=60, borders='hard',                    ### World
+                    name='Detroix23', pvn=0.05, pvx=0.15, pvs=0.005, psdec=0.010, psv=3.5,          ### Player
+                    vx=float('inf'), pdrag=0.01, bounce=0.95                                ### Physics
+                    )
+        print("GAME - Finished")
 
-elif launch_mode == 'Function testing':
-    print("FT - Started")
+    elif launch_mode == 'Function testing':
+        print("FT - Started")
